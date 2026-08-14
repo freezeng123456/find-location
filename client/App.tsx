@@ -57,6 +57,12 @@ export function App() {
 
   const loadState = useCallback(async (silent = false) => {
     try {
+      const session = await api.session();
+      if (!session.authenticated) {
+        setData(null);
+        setScreen("auth");
+        return;
+      }
       const next = await api.state();
       setData(next);
       setScreen("app");
@@ -298,12 +304,14 @@ export function App() {
           )}
         </span>
         <div className="composer-input">
-          <label htmlFor="discovery-input">让 Agent 找出内容里的地点</label>
+          <label htmlFor="discovery-input">
+            在这里输入链接或文字，让 Agent 找出地点
+          </label>
           <textarea
             id="discovery-input"
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder="粘贴公开链接，或写下一段文字…"
+            placeholder="例如：粘贴一篇旅行文章，或写下周末行程…"
             rows={1}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {

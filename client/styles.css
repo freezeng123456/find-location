@@ -708,6 +708,13 @@ p {
   backdrop-filter: blur(16px);
 }
 
+.discovery-composer:focus-within {
+  border-color: rgba(23, 75, 70, 0.38);
+  box-shadow:
+    0 14px 45px rgba(32, 45, 40, 0.15),
+    0 0 0 3px rgba(23, 75, 70, 0.08);
+}
+
 .composer-icon {
   display: grid;
   width: 34px;
@@ -724,6 +731,7 @@ p {
   min-width: 0;
   flex: 1;
   gap: 2px;
+  cursor: text;
 }
 
 .composer-input label {
@@ -992,6 +1000,9 @@ p {
 
 .candidate-list {
   display: grid;
+  min-height: 0;
+  align-content: start;
+  grid-auto-rows: max-content;
   gap: 12px;
   overflow: auto;
   padding: 14px;
@@ -1681,13 +1692,17 @@ p {
 }
 
 .category-name-input button {
-  display: grid;
-  width: 38px;
+  display: flex;
+  width: 62px;
   height: 100%;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
   border-left: 1px solid var(--line);
   color: var(--forest);
   background: transparent;
+  font-size: 9px;
+  font-weight: 600;
 }
 
 .color-options {
@@ -2258,6 +2273,7 @@ p {
   .candidate-list {
     grid-auto-flow: column;
     grid-auto-columns: min(82vw, 330px);
+    grid-auto-rows: minmax(0, 1fr);
     overflow-x: auto;
     overflow-y: hidden;
     scroll-snap-type: x mandatory;

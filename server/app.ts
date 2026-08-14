@@ -80,6 +80,12 @@ export function createApp(database: PlaceDatabase) {
     });
   });
 
+  app.get("/api/session", (request, response) => {
+    response.json({
+      authenticated: Boolean(authenticatedUserId(request, database)),
+    });
+  });
+
   app.post("/api/auth/register", (request, response) => {
     const body = registrationSchema.parse(request.body);
     if (database.findUserByEmail(body.email)) {

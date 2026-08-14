@@ -43,6 +43,8 @@ async function request<T>(
 }
 
 export const api = {
+  session: () =>
+    request<{ authenticated: boolean }>("/api/session"),
   state: () => request<AppState>("/api/state"),
   register: (input: { email: string; name: string; password: string }) =>
     request("/api/auth/register", {

@@ -196,6 +196,7 @@ function CategoryManager({
             />
             <button disabled={busy || !name.trim()} aria-label="创建类别">
               <Plus size={17} />
+              创建
             </button>
           </div>
         </label>
