@@ -168,6 +168,11 @@ npm run seed      # 创建本地演示账号和示例
 
 ## 地图
 
-默认使用 OpenStreetMap 作为无需 Key 的开发回退。产品范围限定为中国大陆；
-正式部署可在保持 `Place` 经纬度接口不变的情况下替换为高德地图，并配置合规的
-地图 Key、坐标系转换和服务条款。
+默认使用 OpenStreetMap，不需要 Key。浏览器通过本站的
+`/api/map-tiles` 同源读取瓦片，服务端转发缓存相关响应头，因此即使客户端网络
+无法直接连接 OpenStreetMap，底图仍可正常显示。使用公开服务时应继续遵守
+[OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/)
+并保留地图署名。
+
+产品范围限定为中国大陆；正式部署也可以在保持 `Place` 经纬度接口不变的情况下
+替换地图提供方。

@@ -15,6 +15,7 @@ import {
 } from "./auth.js";
 import { apiAgentEnabled, processWithApi } from "./agent.js";
 import type { PlaceDatabase } from "./db.js";
+import { proxyMapTile } from "./map-tiles.js";
 
 const credentialsSchema = z.object({
   email: z.email().max(160),
@@ -72,6 +73,8 @@ export function createApp(database: PlaceDatabase) {
     }),
   );
   app.use(express.json({ limit: "1mb" }));
+
+  app.get("/api/map-tiles/:z/:x/:tile", proxyMapTile);
 
   app.get("/api/health", (_request, response) => {
     response.json({

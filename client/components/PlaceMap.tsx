@@ -51,7 +51,7 @@ export function PlaceMap({
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        url="/api/map-tiles/{z}/{x}/{y}.png"
       />
       <ZoomControl position="bottomright" />
       <MapViewport points={points} />

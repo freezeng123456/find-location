@@ -1,5 +1,12 @@
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { CandidateSubmission } from "../shared/contracts";
 import { createApp } from "./app";
 import { PlaceDatabase } from "./db";
@@ -14,7 +21,43 @@ describe("place trace API", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     database.close();
+  });
+
+  it("serves map tiles through the application origin", async () => {
+    const tile = Uint8Array.from([137, 80, 78, 71]);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(tile, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "public, max-age=86400",
+          ETag: '"tile-version"',
+        },
+      }),
+    );
+
+    const response = await request(app)
+      .get("/api/map-tiles/1/1/1.png")
+      .expect("Content-Type", /image\/png/)
+      .expect("Cache-Control", "public, max-age=86400")
+      .expect("ETag", '"tile-version"')
+      .expect(200);
+
+    expect(response.body).toEqual(Buffer.from(tile));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      "https://tile.openstreetmap.org/1/1/1.png",
+    );
+  });
+
+  it("rejects invalid map tile coordinates without an upstream call", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    await request(app)
+      .get("/api/map-tiles/2/4/0.png")
+      .expect(400);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("keeps each user's map isolated", async () => {
