@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import type {
+  AgentMode,
   AppState,
   Candidate,
   DuplicatePlace,
@@ -36,7 +37,7 @@ export function App() {
   const [data, setData] = useState<AppState | null>(null);
   const [input, setInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [agentMode, setAgentMode] = useState<"skill" | "api">("skill");
+  const [agentMode, setAgentMode] = useState<AgentMode>("skill");
   const [activeQueryId, setActiveQueryId] = useState<string | null>(null);
   const [candidatePanelOpen, setCandidatePanelOpen] = useState(false);
   const [selectedCandidateId, setSelectedCandidateId] = useState<
@@ -63,6 +64,7 @@ export function App() {
         setScreen("auth");
         return;
       }
+      setAgentMode(session.agentMode);
       const next = await api.state();
       setData(next);
       setScreen("app");
@@ -122,7 +124,9 @@ export function App() {
       setToast(
         result.agentMode === "skill"
           ? "已放入 Codex Skill 收件箱"
-          : "Agent 已开始整理候选",
+          : result.agentMode === "nvidia"
+            ? "NVIDIA 免费模型已开始分析"
+            : "OpenAI 已开始整理候选",
       );
     } catch (error) {
       setToast(error instanceof Error ? error.message : "提交失败");
@@ -343,9 +347,13 @@ export function App() {
           开始发现
           <ArrowRight size={17} />
         </button>
-        <span className="agent-mode">
+        <span className={`agent-mode agent-mode--${agentMode}`}>
           <i />
-          {agentMode === "skill" ? "Skill 模式" : "API 模式"}
+          {agentMode === "skill"
+            ? "Skill 模式"
+            : agentMode === "nvidia"
+              ? "NVIDIA NIM 试用"
+              : "OpenAI 模式"}
         </span>
       </form>
 
@@ -433,6 +441,7 @@ export function App() {
             initialTab={libraryTab}
             queries={data.queries}
             categories={data.categories}
+            places={data.places}
             rules={data.rules}
             onClose={() => setLibraryTab(null)}
             onSelectQuery={(id) => {
@@ -450,6 +459,18 @@ export function App() {
                 setToast(
                   error instanceof Error ? error.message : "创建失败",
                 );
+              }
+            }}
+            onSetCategoryPlaces={async (categoryId, placeIds) => {
+              try {
+                await api.setCategoryPlaces(categoryId, placeIds);
+                await loadState(true);
+                setToast(`已更新 ${placeIds.length} 个地点的归类`);
+              } catch (error) {
+                setToast(
+                  error instanceof Error ? error.message : "归类失败",
+                );
+                throw error;
               }
             }}
             onDecideRule={async (id, accept) => {

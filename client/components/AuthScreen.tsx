@@ -90,13 +90,17 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               </label>
             )}
             <label>
-              <span>邮箱</span>
+              <span>{mode === "register" ? "邮箱" : "账号或邮箱"}</span>
               <input
-                type="email"
-                autoComplete="email"
+                type={mode === "register" ? "email" : "text"}
+                autoComplete={
+                  mode === "register" ? "email" : "username"
+                }
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
+                placeholder={
+                  mode === "register" ? "you@example.com" : "账号或邮箱"
+                }
                 required
               />
             </label>

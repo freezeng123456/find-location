@@ -1,7 +1,15 @@
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { CandidateSubmission } from "../shared/contracts";
 import { createApp } from "./app";
+import { hashPassword } from "./auth";
 import { PlaceDatabase } from "./db";
 
 describe("place trace API", () => {
@@ -14,7 +22,121 @@ describe("place trace API", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     database.close();
+  });
+
+  it("serves map tiles through the application origin", async () => {
+    const tile = Uint8Array.from([137, 80, 78, 71]);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(tile, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "public, max-age=86400",
+          ETag: '"tile-version"',
+        },
+      }),
+    );
+
+    const response = await request(app)
+      .get("/api/map-tiles/1/1/1.png")
+      .expect("Content-Type", /image\/png/)
+      .expect("Cache-Control", "public, max-age=86400")
+      .expect("ETag", '"tile-version"')
+      .expect(200);
+
+    expect(response.body).toEqual(Buffer.from(tile));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      "https://tile.openstreetmap.org/1/1/1.png",
+    );
+  });
+
+  it("rejects invalid map tile coordinates without an upstream call", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    await request(app)
+      .get("/api/map-tiles/2/4/0.png")
+      .expect(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses NVIDIA NIM only for the allowed trial account", async () => {
+    vi.stubEnv("NVIDIA_API_KEY", "test-nvidia-key");
+    vi.stubEnv("NVIDIA_ALLOWED_ACCOUNTS", "free");
+    vi.stubEnv("NVIDIA_MODEL", "meta/test-model");
+    vi.stubEnv("NVIDIA_TRIAL_RPM", "1");
+    database.createUser({
+      email: "free",
+      name: "免费试用",
+      passwordHash: hashPassword("free-password"),
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: `\`\`\`json
+{"title":"杭州散步","candidates":[{"name":"柳浪闻莺","canonicalName":"柳浪闻莺","address":"浙江省杭州市上城区南山路87号","latitude":30.23754,"longitude":120.15577,"type":"公园","quote":"去柳浪闻莺看西湖边的新绿","mentionConfidence":99,"matchConfidence":96,"note":"杭州语境明确","thumbnailUrl":""}],"diagnostics":{"summary":"识别到一个地点","model":"ignored","warnings":[]}}
+\`\`\``,
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const login = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "free", password: "free-password" })
+      .expect(200);
+    const cookie = login.headers["set-cookie"];
+    const session = await request(app)
+      .get("/api/session")
+      .set("Cookie", cookie)
+      .expect(200);
+    expect(session.body.agentMode).toBe("nvidia");
+
+    const submitted = await request(app)
+      .post("/api/queries")
+      .set("Cookie", cookie)
+      .send({ input: "去柳浪闻莺看西湖边的新绿" })
+      .expect(202);
+    expect(submitted.body.agentMode).toBe("nvidia");
+    await vi.waitFor(() => {
+      expect(
+        database.getQuery(submitted.body.query.id)?.status,
+      ).toBe("ready");
+    });
+    expect(
+      database.getQuery(submitted.body.query.id)?.candidates[0].name,
+    ).toBe("柳浪闻莺");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const requestBody = JSON.parse(
+      String((fetchMock.mock.calls[0][1] as RequestInit).body),
+    ) as { model: string };
+    expect(requestBody.model).toBe("meta/test-model");
+
+    await request(app)
+      .post("/api/queries")
+      .set("Cookie", cookie)
+      .send({ input: "再分析一次杭州西湖" })
+      .expect(429);
+
+    const regular = await register("regular@example.com", "普通用户");
+    const regularQuery = await request(app)
+      .post("/api/queries")
+      .set("Cookie", regular.cookie)
+      .send({ input: "分析杭州西湖" })
+      .expect(202);
+    expect(regularQuery.body.agentMode).toBe("skill");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("keeps each user's map isolated", async () => {
@@ -64,6 +186,74 @@ describe("place trace API", () => {
     expect(added.body.name).toBe(candidate.name);
     expect(added.body).not.toHaveProperty("confidence");
     expect(added.body.sourceCount).toBe(1);
+  });
+
+  it("bulk assigns saved places to a user-owned category", async () => {
+    const owner = await register("categories@example.com", "分类用户");
+    const stranger = await register(
+      "category-stranger@example.com",
+      "其他用户",
+    );
+    const demo = await request(app)
+      .post("/api/demo")
+      .set("Cookie", owner.cookie)
+      .expect(201);
+    const placeIds: string[] = [];
+    for (const candidate of demo.body.candidates.slice(0, 2)) {
+      const added = await request(app)
+        .post(`/api/candidates/${candidate.id}/add`)
+        .set("Cookie", owner.cookie)
+        .send({})
+        .expect(201);
+      placeIds.push(added.body.id);
+    }
+
+    const category = await request(app)
+      .post("/api/categories")
+      .set("Cookie", owner.cookie)
+      .send({ name: "周末散步", color: "#28766e" })
+      .expect(201);
+
+    await request(app)
+      .put(`/api/categories/${category.body.id}/places`)
+      .set("Cookie", owner.cookie)
+      .send({ placeIds })
+      .expect(204);
+    let state = await request(app)
+      .get("/api/state")
+      .set("Cookie", owner.cookie)
+      .expect(200);
+    expect(
+      state.body.categories.find(
+        (item: { id: string }) => item.id === category.body.id,
+      ).placeCount,
+    ).toBe(2);
+    expect(
+      state.body.places.every((place: { categories: Array<{ id: string }> }) =>
+        place.categories.some((item) => item.id === category.body.id),
+      ),
+    ).toBe(true);
+
+    await request(app)
+      .put(`/api/categories/${category.body.id}/places`)
+      .set("Cookie", owner.cookie)
+      .send({ placeIds: [placeIds[0]] })
+      .expect(204);
+    state = await request(app)
+      .get("/api/state")
+      .set("Cookie", owner.cookie)
+      .expect(200);
+    expect(
+      state.body.categories.find(
+        (item: { id: string }) => item.id === category.body.id,
+      ).placeCount,
+    ).toBe(1);
+
+    await request(app)
+      .put(`/api/categories/${category.body.id}/places`)
+      .set("Cookie", stranger.cookie)
+      .send({ placeIds: [] })
+      .expect(404);
   });
 
   it("requires confirmation before merging a likely duplicate", async () => {
