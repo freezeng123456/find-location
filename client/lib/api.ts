@@ -1,4 +1,5 @@
 import type {
+  AgentMode,
   AppState,
   DuplicatePlace,
   Place,
@@ -44,7 +45,9 @@ async function request<T>(
 
 export const api = {
   session: () =>
-    request<{ authenticated: boolean }>("/api/session"),
+    request<{ authenticated: boolean; agentMode: AgentMode }>(
+      "/api/session",
+    ),
   state: () => request<AppState>("/api/state"),
   register: (input: { email: string; name: string; password: string }) =>
     request("/api/auth/register", {
@@ -58,7 +61,7 @@ export const api = {
     }),
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
   createQuery: (input: string) =>
-    request<{ query: QueryRecord; agentMode: "api" | "skill" }>(
+    request<{ query: QueryRecord; agentMode: AgentMode }>(
       "/api/queries",
       {
         method: "POST",

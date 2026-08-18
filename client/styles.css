@@ -820,6 +820,16 @@ p {
   box-shadow: 0 0 0 3px rgba(88, 166, 120, 0.13);
 }
 
+.agent-mode--nvidia {
+  color: #4b690f;
+  background: rgba(243, 248, 231, 0.9);
+}
+
+.agent-mode--nvidia i {
+  background: #76b900;
+  box-shadow: 0 0 0 3px rgba(118, 185, 0, 0.15);
+}
+
 .map-summary {
   position: absolute;
   top: 96px;

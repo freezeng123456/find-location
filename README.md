@@ -9,7 +9,7 @@
 
 - **Skill 优先**：默认不调用模型 API，由仓库内的 Codex
   `place-curator` Skill 处理收件箱。
-- **API 可替换**：配置 OpenAI API Key 后，相同查询可以由服务端自动处理。
+- **API 可替换**：可配置 NVIDIA NIM 或 OpenAI，由服务端自动处理查询。
 - **显式确认**：Agent 无权把候选直接变成收藏。
 - **历史可追溯**：查询、候选、来源、合并、喜欢、归类和软删除都有独立记录。
 - **用户隔离**：所有地点、来源、类别和个人规则都按账号隔离。
@@ -136,7 +136,24 @@ cp .env.example .env
 ```
 
 设置 `OPENAI_API_KEY` 后，网站提交查询时会自动调用 Responses API。
-Skill 与 API 共用同一份候选 Schema 和持久化边界，二者都不能跳过用户确认。
+也可以使用 NVIDIA Developer Program 的免费 NIM 原型接口：
+
+```env
+NVIDIA_API_KEY=通过安全环境变量配置
+NVIDIA_MODEL=meta/llama-3.1-70b-instruct
+NVIDIA_ALLOWED_ACCOUNTS=free
+NVIDIA_TRIAL_RPM=8
+TRIAL_ACCOUNT_LOGIN=free
+TRIAL_ACCOUNT_PASSWORD=至少8位的试用密码
+```
+
+服务启动时会初始化试用账号。只有 `NVIDIA_ALLOWED_ACCOUNTS` 中的账号可以触发
+NVIDIA 请求；浏览器永远无法读取 API Key。免费试用账号默认还受到每分钟
+8 次的应用侧限制。NVIDIA Developer Program 托管接口仅用于原型、研究、
+开发和测试，不应作为正式生产服务。
+
+Skill、NVIDIA 和 OpenAI 共用同一份候选 Schema 和持久化边界，任何模式都不能
+跳过用户确认。
 
 公共多用户部署若要自动处理每个人的查询，必须配置一个 Agent
 运行时（API 或受控任务队列）。仓库级 Skill 本身不会在普通 Web

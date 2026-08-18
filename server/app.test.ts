@@ -9,6 +9,7 @@ import {
 } from "vitest";
 import type { CandidateSubmission } from "../shared/contracts";
 import { createApp } from "./app";
+import { hashPassword } from "./auth";
 import { PlaceDatabase } from "./db";
 
 describe("place trace API", () => {
@@ -22,6 +23,7 @@ describe("place trace API", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     database.close();
   });
 
@@ -58,6 +60,83 @@ describe("place trace API", () => {
       .get("/api/map-tiles/2/4/0.png")
       .expect(400);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses NVIDIA NIM only for the allowed trial account", async () => {
+    vi.stubEnv("NVIDIA_API_KEY", "test-nvidia-key");
+    vi.stubEnv("NVIDIA_ALLOWED_ACCOUNTS", "free");
+    vi.stubEnv("NVIDIA_MODEL", "meta/test-model");
+    vi.stubEnv("NVIDIA_TRIAL_RPM", "1");
+    database.createUser({
+      email: "free",
+      name: "免费试用",
+      passwordHash: hashPassword("free-password"),
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: `\`\`\`json
+{"title":"杭州散步","candidates":[{"name":"柳浪闻莺","canonicalName":"柳浪闻莺","address":"浙江省杭州市上城区南山路87号","latitude":30.23754,"longitude":120.15577,"type":"公园","quote":"去柳浪闻莺看西湖边的新绿","mentionConfidence":99,"matchConfidence":96,"note":"杭州语境明确","thumbnailUrl":""}],"diagnostics":{"summary":"识别到一个地点","model":"ignored","warnings":[]}}
+\`\`\``,
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const login = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "free", password: "free-password" })
+      .expect(200);
+    const cookie = login.headers["set-cookie"];
+    const session = await request(app)
+      .get("/api/session")
+      .set("Cookie", cookie)
+      .expect(200);
+    expect(session.body.agentMode).toBe("nvidia");
+
+    const submitted = await request(app)
+      .post("/api/queries")
+      .set("Cookie", cookie)
+      .send({ input: "去柳浪闻莺看西湖边的新绿" })
+      .expect(202);
+    expect(submitted.body.agentMode).toBe("nvidia");
+    await vi.waitFor(() => {
+      expect(
+        database.getQuery(submitted.body.query.id)?.status,
+      ).toBe("ready");
+    });
+    expect(
+      database.getQuery(submitted.body.query.id)?.candidates[0].name,
+    ).toBe("柳浪闻莺");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const requestBody = JSON.parse(
+      String((fetchMock.mock.calls[0][1] as RequestInit).body),
+    ) as { model: string };
+    expect(requestBody.model).toBe("meta/test-model");
+
+    await request(app)
+      .post("/api/queries")
+      .set("Cookie", cookie)
+      .send({ input: "再分析一次杭州西湖" })
+      .expect(429);
+
+    const regular = await register("regular@example.com", "普通用户");
+    const regularQuery = await request(app)
+      .post("/api/queries")
+      .set("Cookie", regular.cookie)
+      .send({ input: "分析杭州西湖" })
+      .expect(202);
+    expect(regularQuery.body.agentMode).toBe("skill");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("keeps each user's map isolated", async () => {

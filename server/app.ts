@@ -13,17 +13,25 @@ import {
   hashPassword,
   verifyPassword,
 } from "./auth.js";
-import { apiAgentEnabled, processWithApi } from "./agent.js";
+import {
+  agentModeForAccount,
+  configuredAgentModes,
+  processWithAgent,
+} from "./agent.js";
 import type { PlaceDatabase } from "./db.js";
 import { proxyMapTile } from "./map-tiles.js";
 
-const credentialsSchema = z.object({
-  email: z.email().max(160),
-  password: z.string().min(8).max(200),
+const passwordSchema = z.string().min(8).max(200);
+
+const loginSchema = z.object({
+  email: z.string().trim().min(1).max(160),
+  password: passwordSchema,
 });
 
-const registrationSchema = credentialsSchema.extend({
+const registrationSchema = z.object({
+  email: z.email().max(160),
   name: z.string().trim().min(1).max(60),
+  password: passwordSchema,
 });
 
 const querySchema = z.object({
@@ -44,6 +52,7 @@ const categoryPlacesSchema = z.object({
 
 export function createApp(database: PlaceDatabase) {
   const app = express();
+  const nvidiaRequests = new Map<string, number[]>();
   app.disable("x-powered-by");
   app.use(
     helmet({
@@ -83,13 +92,18 @@ export function createApp(database: PlaceDatabase) {
   app.get("/api/health", (_request, response) => {
     response.json({
       ok: true,
-      agentMode: apiAgentEnabled() ? "api" : "skill",
+      agentModes: configuredAgentModes(),
     });
   });
 
   app.get("/api/session", (request, response) => {
+    const userId = authenticatedUserId(request, database);
+    const user = userId ? database.findUserById(userId) : undefined;
     response.json({
-      authenticated: Boolean(authenticatedUserId(request, database)),
+      authenticated: Boolean(user),
+      agentMode: user
+        ? agentModeForAccount(user.email)
+        : "skill",
     });
   });
 
@@ -110,10 +124,10 @@ export function createApp(database: PlaceDatabase) {
   });
 
   app.post("/api/auth/login", (request, response) => {
-    const body = credentialsSchema.parse(request.body);
+    const body = loginSchema.parse(request.body);
     const user = database.findUserByEmail(body.email);
     if (!user || !verifyPassword(body.password, user.password_hash)) {
-      return response.status(401).json({ error: "邮箱或密码不正确。" });
+      return response.status(401).json({ error: "账号或密码不正确。" });
     }
     createSession(response, database, user.id);
     return response.json({
@@ -136,14 +150,26 @@ export function createApp(database: PlaceDatabase) {
     const userId = requireUser(request, response, database);
     if (!userId) return;
     const { input } = querySchema.parse(request.body);
+    const user = database.findUserById(userId);
+    if (!user) return response.status(401).json({ error: "请先登录。" });
+    const agentMode = agentModeForAccount(user.email);
+    if (
+      agentMode === "nvidia" &&
+      !takeNvidiaTrialSlot(userId, nvidiaRequests)
+    ) {
+      response.setHeader("Retry-After", "60");
+      return response.status(429).json({
+        error: "免费 AI 试用请求过于频繁，请一分钟后再试。",
+      });
+    }
     const query = database.createQuery(userId, input);
     if (!query) throw new Error("Unable to create query");
-    if (apiAgentEnabled()) {
-      void processWithApi(database, query);
+    if (agentMode !== "skill") {
+      void processWithAgent(database, query, agentMode);
     }
-    response.status(202).json({
+    return response.status(202).json({
       query,
-      agentMode: apiAgentEnabled() ? "api" : "skill",
+      agentMode,
     });
   });
 
@@ -276,4 +302,28 @@ function requireUser(
     return null;
   }
   return userId;
+}
+
+function takeNvidiaTrialSlot(
+  userId: string,
+  requests: Map<string, number[]>,
+) {
+  const configuredLimit = Number(process.env.NVIDIA_TRIAL_RPM ?? 8);
+  const limit =
+    Number.isInteger(configuredLimit) &&
+    configuredLimit > 0 &&
+    configuredLimit <= 40
+      ? configuredLimit
+      : 8;
+  const cutoff = Date.now() - 60_000;
+  const recent = (requests.get(userId) ?? []).filter(
+    (timestamp) => timestamp > cutoff,
+  );
+  if (recent.length >= limit) {
+    requests.set(userId, recent);
+    return false;
+  }
+  recent.push(Date.now());
+  requests.set(userId, recent);
+  return true;
 }

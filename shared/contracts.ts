@@ -31,6 +31,7 @@ export type CandidateInput = z.infer<typeof candidateInputSchema>;
 export type CandidateSubmission = z.infer<
   typeof candidateSubmissionSchema
 >;
+export type AgentMode = "skill" | "openai" | "nvidia";
 
 export interface User {
   id: string;
