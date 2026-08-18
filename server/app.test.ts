@@ -109,6 +109,74 @@ describe("place trace API", () => {
     expect(added.body.sourceCount).toBe(1);
   });
 
+  it("bulk assigns saved places to a user-owned category", async () => {
+    const owner = await register("categories@example.com", "分类用户");
+    const stranger = await register(
+      "category-stranger@example.com",
+      "其他用户",
+    );
+    const demo = await request(app)
+      .post("/api/demo")
+      .set("Cookie", owner.cookie)
+      .expect(201);
+    const placeIds: string[] = [];
+    for (const candidate of demo.body.candidates.slice(0, 2)) {
+      const added = await request(app)
+        .post(`/api/candidates/${candidate.id}/add`)
+        .set("Cookie", owner.cookie)
+        .send({})
+        .expect(201);
+      placeIds.push(added.body.id);
+    }
+
+    const category = await request(app)
+      .post("/api/categories")
+      .set("Cookie", owner.cookie)
+      .send({ name: "周末散步", color: "#28766e" })
+      .expect(201);
+
+    await request(app)
+      .put(`/api/categories/${category.body.id}/places`)
+      .set("Cookie", owner.cookie)
+      .send({ placeIds })
+      .expect(204);
+    let state = await request(app)
+      .get("/api/state")
+      .set("Cookie", owner.cookie)
+      .expect(200);
+    expect(
+      state.body.categories.find(
+        (item: { id: string }) => item.id === category.body.id,
+      ).placeCount,
+    ).toBe(2);
+    expect(
+      state.body.places.every((place: { categories: Array<{ id: string }> }) =>
+        place.categories.some((item) => item.id === category.body.id),
+      ),
+    ).toBe(true);
+
+    await request(app)
+      .put(`/api/categories/${category.body.id}/places`)
+      .set("Cookie", owner.cookie)
+      .send({ placeIds: [placeIds[0]] })
+      .expect(204);
+    state = await request(app)
+      .get("/api/state")
+      .set("Cookie", owner.cookie)
+      .expect(200);
+    expect(
+      state.body.categories.find(
+        (item: { id: string }) => item.id === category.body.id,
+      ).placeCount,
+    ).toBe(1);
+
+    await request(app)
+      .put(`/api/categories/${category.body.id}/places`)
+      .set("Cookie", stranger.cookie)
+      .send({ placeIds: [] })
+      .expect(404);
+  });
+
   it("requires confirmation before merging a likely duplicate", async () => {
     const session = await register("duplicate@example.com", "重复测试");
     const demo = await request(app)

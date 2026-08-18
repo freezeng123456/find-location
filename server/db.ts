@@ -730,6 +730,71 @@ export class PlaceDatabase {
     return this.getPlace(placeId, userId);
   }
 
+  setCategoryPlaces(
+    userId: string,
+    categoryId: string,
+    requestedPlaceIds: string[],
+  ) {
+    const category = this.raw
+      .prepare(
+        "SELECT id FROM categories WHERE id = ? AND user_id = ?",
+      )
+      .get(categoryId, userId);
+    if (!category) throw new Error("Category not found");
+
+    const placeIds = [...new Set(requestedPlaceIds)];
+    if (placeIds.length > 0) {
+      const placeholders = placeIds.map(() => "?").join(", ");
+      const owned = this.raw
+        .prepare(
+          `SELECT id FROM places
+           WHERE user_id = ? AND deleted_at IS NULL
+             AND id IN (${placeholders})`,
+        )
+        .all(userId, ...placeIds) as Array<{ id: string }>;
+      if (owned.length !== placeIds.length) {
+        throw new Error("Place not found");
+      }
+    }
+
+    const currentPlaceIds = (
+      this.raw
+        .prepare(
+          `SELECT pc.place_id AS id
+           FROM place_categories pc
+           JOIN places p ON p.id = pc.place_id
+           WHERE pc.category_id = ? AND p.user_id = ?`,
+        )
+        .all(categoryId, userId) as Array<{ id: string }>
+    ).map((place) => place.id);
+    const current = new Set(currentPlaceIds);
+    const requested = new Set(placeIds);
+
+    const update = this.raw.transaction(() => {
+      this.raw
+        .prepare("DELETE FROM place_categories WHERE category_id = ?")
+        .run(categoryId);
+      const insert = this.raw.prepare(
+        `INSERT INTO place_categories (place_id, category_id)
+         VALUES (?, ?)`,
+      );
+      for (const placeId of placeIds) {
+        insert.run(placeId, categoryId);
+      }
+      for (const placeId of new Set([...current, ...requested])) {
+        const wasAttached = current.has(placeId);
+        const isAttached = requested.has(placeId);
+        if (wasAttached === isAttached) continue;
+        this.recordEvent(placeId, userId, "categories_changed", {
+          categoryId,
+          attached: isAttached,
+          bulk: true,
+        });
+      }
+    });
+    update();
+  }
+
   proposeRule(userId: string, scope: Rule["scope"], content: string) {
     const id = randomUUID();
     const stamp = now();

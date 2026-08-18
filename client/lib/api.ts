@@ -87,6 +87,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name, color }),
     }),
+  setCategoryPlaces: (categoryId: string, placeIds: string[]) =>
+    request<void>(`/api/categories/${categoryId}/places`, {
+      method: "PUT",
+      body: JSON.stringify({ placeIds }),
+    }),
   toggleCategory: (placeId: string, categoryId: string) =>
     request<Place>(
       `/api/places/${placeId}/categories/${categoryId}`,

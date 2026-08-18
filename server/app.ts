@@ -38,6 +38,10 @@ const categorySchema = z.object({
     .default("#d96f45"),
 });
 
+const categoryPlacesSchema = z.object({
+  placeIds: z.array(z.string().uuid()).max(1_000),
+});
+
 export function createApp(database: PlaceDatabase) {
   const app = express();
   app.disable("x-powered-by");
@@ -185,6 +189,14 @@ export function createApp(database: PlaceDatabase) {
     response.status(201).json(
       database.createCategory(userId, body.name, body.color),
     );
+  });
+
+  app.put("/api/categories/:id/places", (request, response) => {
+    const userId = requireUser(request, response, database);
+    if (!userId) return;
+    const { placeIds } = categoryPlacesSchema.parse(request.body);
+    database.setCategoryPlaces(userId, request.params.id, placeIds);
+    response.status(204).end();
   });
 
   app.post(
